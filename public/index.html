@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wiki Challenge</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <div id="notification-area"></div>
+
+    <div id="countdown-overlay" class="hidden">
+        <div id="countdown-number">3</div>
+    </div>
+
+    <div id="victory-screen" class="hidden">
+        <div class="victory-content">
+            <h1 id="victory-title">VICTOIRE !</h1>
+            <div id="victory-avatar">🏆</div>
+            <p id="victory-message">...</p>
+            <button onclick="closeVictoryScreen()" class="btn-primary">Retour au Lobby</button>
+        </div>
+    </div>
+
+    <div id="final-screen" class="hidden">
+        <div class="final-content">
+            <h1>🏆 CLASSEMENT FINAL 🏆</h1>
+            <div id="podium-container">
+                </div>
+            <button onclick="closeFinalScreen()" class="btn-start">RETOURNER AU LOBBY</button>
+        </div>
+    </div>
+
+    <div id="login-screen" class="screen">
+        <div class="card">
+            <h1>Wiki Challenge</h1>
+            <form action="/login" method="POST">
+                <input type="text" name="username" placeholder="Ton pseudo..." required autocomplete="off">
+                <button type="submit">Entrer</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="menu-screen" class="screen hidden">
+        <div class="card">
+            <h2 id="user-welcome"></h2>
+            <div class="menu-actions">
+                <button onclick="createGame()" class="btn-primary">Créer une partie</button>
+                <div class="join-area">
+                    <input type="text" id="join-code" placeholder="Code (ex: A1B2)">
+                    <button onclick="joinGame()" class="btn-secondary">Rejoindre</button>
+                </div>
+            </div>
+            <a href="/logout" class="logout-link">Se déconnecter</a>
+        </div>
+    </div>
+
+    <div id="game-screen" class="screen hidden">
+        <aside class="sidebar">
+            <div class="room-info">
+                <h3>Code: <span id="display-code" style="color: #f1c40f;"></span></h3>
+                <div id="round-info">Lobby</div>
+                <div id="timer-display" class="timer-box hidden">00:00</div>
+            </div>
+
+            <div id="host-settings" class="settings-box hidden">
+                <h4>Paramètres</h4>
+                <label>Mode :</label>
+                <select id="setting-mode" onchange="updateSettings()">
+                    <option value="SPEED">Vitesse</option>
+                    <option value="CLICKS">Stratégie (Clics)</option>
+                </select>
+                <label>Temps (sec) :</label>
+                <input type="number" id="setting-time" value="0" min="0" placeholder="0 = Infini" onchange="updateSettings()">
+                <label>Rounds :</label>
+                <input type="number" id="setting-rounds" value="3" min="1" max="10" onchange="updateSettings()">
+            </div>
+
+            <div id="guest-settings" class="settings-info hidden">
+                <h4>Règles</h4>
+                <p>Mode : <strong id="info-mode">Vitesse</strong></p>
+                <p>Temps : <strong id="info-time">Infini</strong></p>
+                <p>Rounds : <strong id="info-rounds">3</strong></p>
+            </div>
+            
+            <div id="players-list"></div>
+
+            <div id="game-controls">
+                <button id="btn-start" onclick="startGame()" class="btn-start hidden">LANCER LA PARTIE</button>
+                <button id="btn-forfeit" onclick="forfeitGame()" class="btn-danger hidden">🏳️ Abandonner</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div id="game-header" class="hidden">
+                <div class="objective">
+                    <div class="target-box">Départ: <b id="start-target"></b></div>
+                    <div class="arrow">➜</div>
+                    <div class="target-box">Cible: <b id="end-target" style="color:#e74c3c"></b></div>
+                </div>
+            </div>
+            
+            <div id="iframe-container">
+                <div class="placeholder-text">
+                    <h2>En attente du maître du jeu...</h2>
+                    <p>Configurez la partie et lancez !</p>
+                </div>
+                <iframe id="wiki-frame" name="wiki-frame" src=""></iframe>
+            </div>
+        </main>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>
