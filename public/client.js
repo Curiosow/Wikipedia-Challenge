@@ -57,7 +57,29 @@ function startCountdown() {
 }
 
 function closeVictoryScreen() { document.getElementById('victory-screen').classList.add('hidden'); }
-function closeFinalScreen() { document.getElementById('final-screen').classList.add('hidden'); }
+function closeFinalScreen() {
+    if (!currentRoom) {
+        returnToMenu();
+        return;
+    }
+
+    // Si je suis l'hôte, je ferme la salle pour tout le monde
+    if (currentUser.id === currentRoom.host) {
+        socket.emit('close_room', currentRoom.code);
+    } else {
+        // Si je suis invité, je quitte juste localement
+        returnToMenu();
+        // On peut aussi prévenir le serveur qu'on part, mais ici le reset suffit
+        location.reload(); // Le plus simple pour nettoyer proprement l'état invité
+    }
+}
+
+function returnToMenu() {
+    document.getElementById('final-screen').classList.add('hidden');
+    document.getElementById('victory-screen').classList.add('hidden');
+    currentRoom = null;
+    showScreen('menu-screen');
+}
 
 // --- ACTIONS ---
 function createGame() { socket.emit('join_lobby', { user: currentUser, roomCode: null }); }
@@ -235,6 +257,7 @@ socket.on('round_end', ({ winnerName, winnerHistory, room }) => {
 socket.on('game_over', ({ leaderboard, room }) => {
     stopClientTimer();
     currentRoom = room;
+
     updateLobbyUI();
     resetGameView(room);
     const finalScreen = document.getElementById('final-screen');
@@ -251,7 +274,22 @@ socket.on('game_over', ({ leaderboard, room }) => {
         row.innerHTML = `<div class="rank">${place}</div><div class="name">${medal} ${p.username}</div><div class="score">${p.score} pts</div>`;
         podiumDiv.appendChild(row);
     });
+
+    const btn = document.querySelector('#final-screen .btn-start');
+    if (currentUser.id === room.host) {
+        btn.innerText = "FERMER LE LOBBY (FIN)";
+        btn.style.backgroundColor = "#c0392b"; // Rouge pour indiquer une action destructrice
+    } else {
+        btn.innerText = "QUITTER";
+        btn.style.backgroundColor = "#7f8c8d"; // Gris
+    }
+
     finalScreen.classList.remove('hidden');
+});
+
+socket.on('force_exit', () => {
+    returnToMenu();
+    showNotification("L'hôte a fermé le lobby.", "info");
 });
 
 function resetGameView(room) {

@@ -186,7 +186,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- CORRECTION ICI ---
     socket.on('player_navigated', ({ roomCode, page }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'PLAYING') return;
@@ -239,6 +238,21 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('notification', { type: 'info', message: `${player.username} a abandonné.` });
             io.to(roomCode).emit('player_forfeited', { playerId: player.id });
             checkEndRound(roomCode);
+        }
+    });
+
+    socket.on('close_room', (roomCode) => {
+        const room = rooms[roomCode];
+        // Seul l'hôte peut fermer la salle pour tout le monde
+        if (room && room.host === socket.user.id) {
+            // On prévient tous les joueurs de la salle
+            io.to(roomCode).emit('force_exit');
+
+            // On supprime la salle de la mémoire du serveur
+            delete rooms[roomCode];
+
+            // (Optionnel) On fait quitter le canal socket à tout le monde
+            io.in(roomCode).socketsLeave(roomCode);
         }
     });
 });
