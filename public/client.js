@@ -22,6 +22,13 @@ function showScreen(id) {
     document.getElementById(id).classList.remove('hidden');
 }
 
+function returnToMenu() {
+    stopClientTimer();
+    currentRoom = null;
+    gameSettings = null;
+    showScreen('menu-screen');
+}
+
 function showNotification(message, type = 'info') {
     const container = document.getElementById('notification-area');
     const notif = document.createElement('div');
@@ -57,30 +64,7 @@ function startCountdown() {
 }
 
 function closeVictoryScreen() { document.getElementById('victory-screen').classList.add('hidden'); }
-
-function closeFinalScreen() {
-    // Sécurité si la room n'existe plus localement
-    if (!currentRoom) {
-        window.location.reload();
-        return;
-    }
-
-    // Si je suis l'HÔTE : Je dis au serveur de tout détruire
-    if (currentUser.id === currentRoom.host) {
-        socket.emit('terminate_room', currentRoom.code);
-    }
-    // Si je suis INVITÉ : Je pars tout seul de mon côté
-    else {
-        window.location.reload();
-    }
-}
-
-function returnToMenu() {
-    document.getElementById('final-screen').classList.add('hidden');
-    document.getElementById('victory-screen').classList.add('hidden');
-    currentRoom = null;
-    showScreen('menu-screen');
-}
+function closeFinalScreen() { document.getElementById('final-screen').classList.add('hidden'); }
 
 // --- ACTIONS ---
 function createGame() { socket.emit('join_lobby', { user: currentUser, roomCode: null }); }
@@ -157,6 +141,11 @@ socket.on('round_start', ({ startTime, settings }) => {
     gameSettings = settings;
     document.getElementById('btn-forfeit').classList.remove('hidden');
     startClientTimer(startTime, settings.timeLimit);
+});
+
+socket.on('force_exit', () => {
+    returnToMenu();
+    showNotification("L'hôte a fermé le lobby.", "info");
 });
 
 socket.on('round_start_immediate', ({ startPage, targetPage, targetDesc, round, totalRounds, recoverPage, history, startTime, settings }) => {
@@ -255,25 +244,12 @@ socket.on('round_end', ({ winnerName, winnerHistory, room }) => {
     }
 });
 
-socket.on('force_reload', () => {
-    window.location.reload();
-});
-
 socket.on('game_over', ({ leaderboard, room }) => {
     stopClientTimer();
     currentRoom = room;
 
     updateLobbyUI();
     resetGameView(room);
-
-    const btn = document.querySelector('#final-screen button');
-    if (currentUser.id === room.host) {
-        btn.innerText = "FERMER LE LOBBY (Supprimer)";
-        btn.style.background = "#c0392b"; // Rouge
-    } else {
-        btn.innerText = "QUITTER LE LOBBY";
-        btn.style.background = "#7f8c8d"; // Gris
-    }
 
     const finalScreen = document.getElementById('final-screen');
     const podiumDiv = document.getElementById('podium-container');
@@ -289,7 +265,7 @@ socket.on('game_over', ({ leaderboard, room }) => {
         row.innerHTML = `<div class="rank">${place}</div><div class="name">${medal} ${p.username}</div><div class="score">${p.score} pts</div>`;
         podiumDiv.appendChild(row);
     });
-
+    
     finalScreen.classList.remove('hidden');
 });
 

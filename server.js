@@ -11,7 +11,6 @@ const io = new Server(server);
 
 const PORT = 80;
 
-
 const WIKI_HEADERS = {
     'User-Agent': 'WikiChallengeGame/5.1 (Educational Project)',
     'Accept-Encoding': 'gzip, deflate, br'
@@ -186,19 +185,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('terminate_room', (roomCode) => {
-        const room = rooms[roomCode];
-        // Vérification de sécurité : seul l'hôte peut tout supprimer
-        if (room && room.host === socket.user.id) {
-            // 1. On ordonne à TOUS les joueurs (hôte inclus) de recharger leur page
-            io.to(roomCode).emit('force_reload');
-
-            // 2. On supprime définitivement la salle côté serveur
-            delete rooms[roomCode];
-            console.log(`Salle ${roomCode} supprimée par l'hôte.`);
-        }
-    });
-
     socket.on('player_navigated', ({ roomCode, page }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'PLAYING') return;
@@ -253,22 +239,15 @@ io.on('connection', (socket) => {
             checkEndRound(roomCode);
         }
     });
-
-    socket.on('close_room', (roomCode) => {
-        const room = rooms[roomCode];
-        // Seul l'hôte peut fermer la salle pour tout le monde
-        if (room && room.host === socket.user.id) {
-            // On prévient tous les joueurs de la salle
-            io.to(roomCode).emit('force_exit');
-
-            // On supprime la salle de la mémoire du serveur
-            delete rooms[roomCode];
-
-            // (Optionnel) On fait quitter le canal socket à tout le monde
-            io.in(roomCode).socketsLeave(roomCode);
-        }
-    });
 });
+
+function destroyLobby(roomCode) {
+    const room = rooms[roomCode];
+    if (room) {
+        io.to(roomCode).emit('force_exit');
+        delete rooms[roomCode];
+    }
+} 
 
 function addPlayerToRoom(socket, code, user) {
     const room = rooms[code];
@@ -381,6 +360,7 @@ function endRound(roomCode) {
         const leaderboard = [...room.players].sort((a, b) => b.score - a.score);
         room.currentRound = 0; 
         io.to(roomCode).emit('game_over', { leaderboard, room });
+        destroyLobby(roomCode);
     } else {
         io.to(roomCode).emit('round_end', { 
             winnerName: winner ? winner.username : null,
