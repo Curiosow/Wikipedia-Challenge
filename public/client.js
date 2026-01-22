@@ -57,20 +57,21 @@ function startCountdown() {
 }
 
 function closeVictoryScreen() { document.getElementById('victory-screen').classList.add('hidden'); }
+
 function closeFinalScreen() {
+    // Sécurité si la room n'existe plus localement
     if (!currentRoom) {
-        returnToMenu();
+        window.location.reload();
         return;
     }
 
-    // Si je suis l'hôte, je ferme la salle pour tout le monde
+    // Si je suis l'HÔTE : Je dis au serveur de tout détruire
     if (currentUser.id === currentRoom.host) {
-        socket.emit('close_room', currentRoom.code);
-    } else {
-        // Si je suis invité, je quitte juste localement
-        returnToMenu();
-        // On peut aussi prévenir le serveur qu'on part, mais ici le reset suffit
-        location.reload(); // Le plus simple pour nettoyer proprement l'état invité
+        socket.emit('terminate_room', currentRoom.code);
+    }
+    // Si je suis INVITÉ : Je pars tout seul de mon côté
+    else {
+        window.location.reload();
     }
 }
 
@@ -254,12 +255,26 @@ socket.on('round_end', ({ winnerName, winnerHistory, room }) => {
     }
 });
 
+socket.on('force_reload', () => {
+    window.location.reload();
+});
+
 socket.on('game_over', ({ leaderboard, room }) => {
     stopClientTimer();
     currentRoom = room;
 
     updateLobbyUI();
     resetGameView(room);
+
+    const btn = document.querySelector('#final-screen button');
+    if (currentUser.id === room.host) {
+        btn.innerText = "FERMER LE LOBBY (Supprimer)";
+        btn.style.background = "#c0392b"; // Rouge
+    } else {
+        btn.innerText = "QUITTER LE LOBBY";
+        btn.style.background = "#7f8c8d"; // Gris
+    }
+
     const finalScreen = document.getElementById('final-screen');
     const podiumDiv = document.getElementById('podium-container');
     podiumDiv.innerHTML = '';
@@ -274,15 +289,6 @@ socket.on('game_over', ({ leaderboard, room }) => {
         row.innerHTML = `<div class="rank">${place}</div><div class="name">${medal} ${p.username}</div><div class="score">${p.score} pts</div>`;
         podiumDiv.appendChild(row);
     });
-
-    const btn = document.querySelector('#final-screen .btn-start');
-    if (currentUser.id === room.host) {
-        btn.innerText = "FERMER LE LOBBY (FIN)";
-        btn.style.backgroundColor = "#c0392b"; // Rouge pour indiquer une action destructrice
-    } else {
-        btn.innerText = "QUITTER";
-        btn.style.backgroundColor = "#7f8c8d"; // Gris
-    }
 
     finalScreen.classList.remove('hidden');
 });

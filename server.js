@@ -186,6 +186,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('terminate_room', (roomCode) => {
+        const room = rooms[roomCode];
+        // Vérification de sécurité : seul l'hôte peut tout supprimer
+        if (room && room.host === socket.user.id) {
+            // 1. On ordonne à TOUS les joueurs (hôte inclus) de recharger leur page
+            io.to(roomCode).emit('force_reload');
+
+            // 2. On supprime définitivement la salle côté serveur
+            delete rooms[roomCode];
+            console.log(`Salle ${roomCode} supprimée par l'hôte.`);
+        }
+    });
+
     socket.on('player_navigated', ({ roomCode, page }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'PLAYING') return;
