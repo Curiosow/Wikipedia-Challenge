@@ -12,14 +12,14 @@ const io = new Server(server);
 const PORT = 3000;
 
 const WIKI_HEADERS = {
-    'User-Agent': 'WikiChallengeGame/3.0 (Educational Project)',
+    'User-Agent': 'WikiChallengeGame/5.1 (Educational Project)',
     'Accept-Encoding': 'gzip, deflate, br'
 };
 
 app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'wiki-secret-key-pro',
+    secret: 'wiki-secret-key-ultra',
     resave: false,
     saveUninitialized: false,
     cookie: { secure: false }
@@ -56,10 +56,14 @@ app.get('/wiki-proxy', async (req, res) => {
             const href = $(el).attr('href');
             if (href && href.startsWith('/')) $(el).attr('href', 'https://fr.wikipedia.org' + href);
         });
+
         $('img').each((i, el) => {
-            const src = $(el).attr('src');
-            if (src && src.startsWith('/')) $(el).attr('src', 'https://fr.wikipedia.org' + src);
+            let src = $(el).attr('src');
             $(el).removeAttr('srcset');
+            if (src) {
+                if (src.startsWith('//')) $(el).attr('src', 'https:' + src);
+                else if (src.startsWith('/')) $(el).attr('src', 'https://fr.wikipedia.org' + src);
+            }
         });
 
         $('a').each((i, el) => {
@@ -130,9 +134,11 @@ io.on('connection', (socket) => {
                 socket.emit('round_start_immediate', { 
                     startPage: foundRoom.startPage, 
                     targetPage: foundRoom.targetPage,
+                    targetDesc: foundRoom.targetDesc,
                     round: foundRoom.currentRound,
                     totalRounds: foundRoom.settings.rounds,
                     recoverPage: player.currentPage,
+                    history: player.history,
                     startTime: foundRoom.startTime,
                     settings: foundRoom.settings
                 });
@@ -149,7 +155,8 @@ io.on('connection', (socket) => {
             rooms[code] = {
                 code, host: user.id, players: [], state: 'LOBBY',
                 settings: { mode: 'SPEED', timeLimit: 0, rounds: 3, visibility: true }, 
-                currentRound: 0, startTime: 0
+                currentRound: 0, startTime: 0, targetDesc: "",
+                suddenDeathActive: false
             };
             addPlayerToRoom(socket, code, user);
         } else {
@@ -169,16 +176,16 @@ io.on('connection', (socket) => {
     socket.on('start_game', (roomCode) => {
         const room = rooms[roomCode];
         if (room && room.host === socket.user.id) {
-            // Si c'est le début d'une NOUVELLE partie (round 0 ou après game over), on reset les scores
             if (room.currentRound === 0 || room.currentRound >= room.settings.rounds) {
                  room.currentRound = 0;
                  room.players.forEach(p => p.score = 0);
-                 io.to(roomCode).emit('room_update', room); // Update UI scores
+                 io.to(roomCode).emit('room_update', room);
             }
             startRound(roomCode);
         }
     });
 
+    // --- CORRECTION ICI ---
     socket.on('player_navigated', ({ roomCode, page }) => {
         const room = rooms[roomCode];
         if (!room || room.state !== 'PLAYING') return;
@@ -186,7 +193,20 @@ io.on('connection', (socket) => {
         
         if (player && !player.finished && !player.forfeited) {
             player.clicks++;
-            player.currentPage = decodeURIComponent(page).replace(/_/g, ' ');
+            const decodedPage = decodeURIComponent(page).replace(/_/g, ' ');
+            player.currentPage = decodedPage;
+            player.history.push(decodedPage);
+
+            // 1. On met à jour l'historique personnel
+            socket.emit('my_history_update', player.history);
+
+            // 2. On met à jour la sidebar pour TOUT LE MONDE (même si c'est la victoire)
+            // Cela permet d'afficher la page finale dans la sidebar
+            io.to(roomCode).emit('progress_update', {
+                playerId: player.id,
+                clicks: player.clicks,
+                currentPage: room.settings.visibility ? player.currentPage : '???'
+            });
 
             const cleanPage = player.currentPage.toLowerCase();
             const cleanTarget = decodeURIComponent(room.targetPage).replace(/_/g, ' ').toLowerCase();
@@ -194,18 +214,17 @@ io.on('connection', (socket) => {
             if (cleanPage === cleanTarget) {
                 player.finished = true;
                 player.finishTime = Date.now();
-                io.to(roomCode).emit('notification', { 
-                    type: 'success', 
-                    message: `🏁 ${player.username} a trouvé la page !` 
-                });
+
+                io.to(roomCode).emit('notification', { type: 'success', message: `🏁 ${player.username} a trouvé la page !` });
                 io.to(roomCode).emit('player_finished', { player: player.username });
+
+                // Mort Subite
+                const finishersCount = room.players.filter(p => p.finished).length;
+                if (room.settings.timeLimit === 0 && finishersCount === 1 && !room.suddenDeathActive) {
+                    triggerSuddenDeath(roomCode);
+                }
+
                 checkEndRound(roomCode);
-            } else {
-                io.to(roomCode).emit('progress_update', { 
-                    playerId: player.id, 
-                    clicks: player.clicks, 
-                    currentPage: room.settings.visibility ? player.currentPage : '???' 
-                });
             }
         }
     });
@@ -227,34 +246,67 @@ function addPlayerToRoom(socket, code, user) {
     const room = rooms[code];
     const existing = room.players.find(p => p.id === user.id);
     if (!existing) {
-        room.players.push({ ...user, socketId: socket.id, score: 0, clicks: 0, currentPage: 'Lobby', finished: false, forfeited: false });
+        room.players.push({
+            ...user, socketId: socket.id, score: 0,
+            clicks: 0, currentPage: 'Lobby', history: [],
+            finished: false, forfeited: false
+        });
     } else { existing.socketId = socket.id; }
     socket.join(code);
     socket.emit('room_joined', room);
     io.to(code).emit('room_update', room);
 }
 
+function triggerSuddenDeath(roomCode) {
+    const room = rooms[roomCode];
+    room.suddenDeathActive = true;
+
+    io.to(roomCode).emit('sudden_death_start');
+    io.to(roomCode).emit('notification', {
+        type: 'warning',
+        message: "⏳ 1ère arrivée ! Il reste 60 secondes pour terminer !"
+    });
+
+    setTimeout(() => {
+        if (room.state === 'PLAYING' && room.suddenDeathActive) {
+             io.to(roomCode).emit('notification', { type: 'error', message: "⏰ Temps écoulé !" });
+             endRound(roomCode);
+        }
+    }, 60000);
+}
+
 async function startRound(roomCode) {
     const room = rooms[roomCode];
     
     try {
-        const api = "https://fr.wikipedia.org/w/api.php?action=query&format=json&list=random&rnnamespace=0&rnlimit=2";
-        const res = await axios.get(api, { headers: WIKI_HEADERS });
-        const articles = res.data.query.random;
+        const apiRandom = "https://fr.wikipedia.org/w/api.php?action=query&format=json&list=random&rnnamespace=0&rnlimit=2";
+        const resRandom = await axios.get(apiRandom, { headers: WIKI_HEADERS });
+        const articles = resRandom.data.query.random;
         
         room.startPage = articles[0].title;
         room.targetPage = articles[1].title;
         
+        try {
+            const apiSummary = `https://fr.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&exintro&explaintext&exchars=300&titles=${encodeURIComponent(room.targetPage)}`;
+            const resSummary = await axios.get(apiSummary, { headers: WIKI_HEADERS });
+            const pages = resSummary.data.query.pages;
+            const pageId = Object.keys(pages)[0];
+            room.targetDesc = pages[pageId].extract || "Pas de description disponible.";
+        } catch (e) { room.targetDesc = "Description indisponible."; }
+
         room.players.forEach(p => { 
             p.clicks = 0; p.currentPage = room.startPage; 
+            p.history = [room.startPage];
             p.finished = false; p.forfeited = false; p.finishTime = null;
         });
 
         room.currentRound++;
+        room.suddenDeathActive = false;
 
         io.to(roomCode).emit('round_prepare', { 
             startPage: room.startPage, 
             targetPage: room.targetPage,
+            targetDesc: room.targetDesc,
             round: room.currentRound, 
             totalRounds: room.settings.rounds
         });
@@ -280,10 +332,10 @@ function checkEndRound(roomCode) {
 function endRound(roomCode) {
     const room = rooms[roomCode];
     room.state = 'LOBBY';
+    room.suddenDeathActive = false;
     
-    // Attribution des points du round
     const finishers = room.players.filter(p => p.finished);
-    let roundWinner = null;
+    let winner = null;
 
     if (finishers.length > 0) {
         if (room.settings.mode === 'SPEED') finishers.sort((a, b) => a.finishTime - b.finishTime);
@@ -294,26 +346,17 @@ function endRound(roomCode) {
             else if (index === 1) p.score += 5;
             else p.score += 2;
         });
-        roundWinner = finishers[0];
+        winner = finishers[0];
     }
 
-    // VÉRIFICATION FIN DE PARTIE
     if (room.currentRound >= room.settings.rounds) {
-        // C'est le dernier round -> GAME OVER
-        // On trie le classement général par SCORE total
         const leaderboard = [...room.players].sort((a, b) => b.score - a.score);
-        
-        // On reset le compteur de round pour la prochaine fois
         room.currentRound = 0; 
-        
-        io.to(roomCode).emit('game_over', { 
-            leaderboard: leaderboard, 
-            room 
-        });
+        io.to(roomCode).emit('game_over', { leaderboard, room });
     } else {
-        // Simple fin de round
         io.to(roomCode).emit('round_end', { 
-            winnerName: roundWinner ? roundWinner.username : null, 
+            winnerName: winner ? winner.username : null,
+            winnerHistory: winner ? winner.history : [],
             room 
         });
     }

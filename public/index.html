@@ -10,16 +10,19 @@
 <body>
 
     <div id="notification-area"></div>
-
-    <div id="countdown-overlay" class="hidden">
-        <div id="countdown-number">3</div>
-    </div>
+    <div id="countdown-overlay" class="hidden"><div id="countdown-number">3</div></div>
 
     <div id="victory-screen" class="hidden">
         <div class="victory-content">
             <h1 id="victory-title">VICTOIRE !</h1>
             <div id="victory-avatar">🏆</div>
             <p id="victory-message">...</p>
+
+            <div id="winner-path-container" class="hidden">
+                <h3>Chemin du vainqueur :</h3>
+                <div id="winner-path-list"></div>
+            </div>
+
             <button onclick="closeVictoryScreen()" class="btn-primary">Retour au Lobby</button>
         </div>
     </div>
@@ -27,8 +30,7 @@
     <div id="final-screen" class="hidden">
         <div class="final-content">
             <h1>🏆 CLASSEMENT FINAL 🏆</h1>
-            <div id="podium-container">
-                </div>
+            <div id="podium-container"></div>
             <button onclick="closeFinalScreen()" class="btn-start">RETOURNER AU LOBBY</button>
         </div>
     </div>
@@ -87,8 +89,13 @@
             
             <div id="players-list"></div>
 
+            <div id="my-history-box" class="hidden">
+                <h4>Mon Historique</h4>
+                <div id="my-history-list"></div>
+            </div>
+
             <div id="game-controls">
-                <button id="btn-start" onclick="startGame()" class="btn-start hidden">LANCER LA PARTIE</button>
+                <button id="btn-start" onclick="startGame()" class="btn-start hidden">LANCER</button>
                 <button id="btn-forfeit" onclick="forfeitGame()" class="btn-danger hidden">🏳️ Abandonner</button>
             </div>
         </aside>
@@ -98,7 +105,11 @@
                 <div class="objective">
                     <div class="target-box">Départ: <b id="start-target"></b></div>
                     <div class="arrow">➜</div>
-                    <div class="target-box">Cible: <b id="end-target" style="color:#e74c3c"></b></div>
+
+                    <div class="target-box tooltip-container">
+                        Cible: <b id="end-target" style="color:#e74c3c"></b>
+                        <span id="target-tooltip" class="tooltip-text">Chargement...</span>
+                    </div>
                 </div>
             </div>
             

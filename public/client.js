@@ -22,7 +22,6 @@ function showScreen(id) {
     document.getElementById(id).classList.remove('hidden');
 }
 
-// --- NOTIFICATIONS ---
 function showNotification(message, type = 'info') {
     const container = document.getElementById('notification-area');
     const notif = document.createElement('div');
@@ -36,7 +35,6 @@ function showNotification(message, type = 'info') {
     }, 4000);
 }
 
-// --- ANIMATIONS ---
 function startCountdown() {
     const overlay = document.getElementById('countdown-overlay');
     const numberEl = document.getElementById('countdown-number');
@@ -58,13 +56,8 @@ function startCountdown() {
     }, 1000);
 }
 
-function closeVictoryScreen() {
-    document.getElementById('victory-screen').classList.add('hidden');
-}
-
-function closeFinalScreen() {
-    document.getElementById('final-screen').classList.add('hidden');
-}
+function closeVictoryScreen() { document.getElementById('victory-screen').classList.add('hidden'); }
+function closeFinalScreen() { document.getElementById('final-screen').classList.add('hidden'); }
 
 // --- ACTIONS ---
 function createGame() { socket.emit('join_lobby', { user: currentUser, roomCode: null }); }
@@ -113,23 +106,27 @@ socket.on('room_update', (room) => {
     updateLobbyUI();
 });
 
-socket.on('round_prepare', ({ startPage, targetPage, round, totalRounds }) => {
+socket.on('round_prepare', ({ startPage, targetPage, targetDesc, round, totalRounds }) => {
     document.getElementById('game-header').classList.remove('hidden');
     document.getElementById('start-target').innerText = startPage;
     document.getElementById('end-target').innerText = targetPage;
+    document.getElementById('target-tooltip').innerText = targetDesc || "Aucune description";
     document.getElementById('round-info').innerText = `Round ${round} / ${totalRounds}`;
     document.getElementById('host-settings').classList.add('hidden');
     document.getElementById('guest-settings').classList.add('hidden');
-    
-    // Fermer les modales si ouvertes
+    document.getElementById('my-history-list').innerHTML = `<div class="history-item start">${startPage}</div>`;
+    document.getElementById('my-history-box').classList.remove('hidden');
     closeVictoryScreen();
     closeFinalScreen();
+
+    // Remise à zéro du style du timer
+    const display = document.getElementById('timer-display');
+    display.classList.remove('panic-mode');
 
     const iframe = document.getElementById('wiki-frame');
     iframe.src = `/wiki-proxy?room=${currentRoom.code}&page=${encodeURIComponent(startPage)}`;
     iframe.style.display = 'block';
     document.querySelector('.placeholder-text').style.display = 'none';
-    
     startCountdown();
 });
 
@@ -139,14 +136,25 @@ socket.on('round_start', ({ startTime, settings }) => {
     startClientTimer(startTime, settings.timeLimit);
 });
 
-socket.on('round_start_immediate', ({ startPage, targetPage, round, totalRounds, recoverPage, startTime, settings }) => {
+socket.on('round_start_immediate', ({ startPage, targetPage, targetDesc, round, totalRounds, recoverPage, history, startTime, settings }) => {
     gameSettings = settings;
     document.getElementById('game-header').classList.remove('hidden');
     document.getElementById('start-target').innerText = startPage;
     document.getElementById('end-target').innerText = targetPage;
+    document.getElementById('target-tooltip').innerText = targetDesc || "Info non dispo";
     document.getElementById('round-info').innerText = `Round ${round} / ${totalRounds}`;
     document.getElementById('btn-forfeit').classList.remove('hidden');
+    document.getElementById('my-history-box').classList.remove('hidden');
     
+    const histList = document.getElementById('my-history-list');
+    histList.innerHTML = '';
+    history.forEach((h, i) => {
+        const div = document.createElement('div');
+        div.className = i === 0 ? 'history-item start' : 'history-item';
+        div.innerText = h;
+        histList.appendChild(div);
+    });
+
     document.querySelector('.placeholder-text').style.display = 'none';
     const iframe = document.getElementById('wiki-frame');
     const pageToLoad = recoverPage || startPage;
@@ -154,6 +162,27 @@ socket.on('round_start_immediate', ({ startPage, targetPage, round, totalRounds,
     iframe.style.display = 'block';
     
     startClientTimer(startTime, settings.timeLimit);
+});
+
+// NOUVEL ÉVÉNEMENT MORT SUBITE
+socket.on('sudden_death_start', () => {
+    // On force le timer client à passer en mode compte à rebours de 60s
+    // On simule un "nouveau" timer de 60s qui commence maintenant
+    const now = Date.now();
+    startClientTimer(now, 60);
+
+    const display = document.getElementById('timer-display');
+    display.classList.add('panic-mode'); // On ajoute un effet visuel (rouge/pulsation)
+});
+
+socket.on('my_history_update', (history) => {
+    const histList = document.getElementById('my-history-list');
+    const lastPage = history[history.length - 1];
+    const div = document.createElement('div');
+    div.className = 'history-item';
+    div.innerText = lastPage;
+    histList.appendChild(div);
+    histList.scrollTop = histList.scrollHeight;
 });
 
 socket.on('progress_update', ({ playerId, clicks, currentPage }) => {
@@ -173,18 +202,19 @@ socket.on('player_forfeited', ({ playerId }) => {
     if (elPage) { elPage.innerText = "🏳️ A abandonné"; elPage.style.color = "red"; }
 });
 
-socket.on('round_end', ({ winnerName, room }) => {
+socket.on('round_end', ({ winnerName, winnerHistory, room }) => {
     stopClientTimer();
     currentRoom = room;
     updateLobbyUI();
     resetGameView(room);
 
-    // MODALE DE FIN DE ROUND
     const victoryScreen = document.getElementById('victory-screen');
     const victoryContent = document.querySelector('.victory-content');
     const victoryTitle = document.getElementById('victory-title');
     const victoryMsg = document.getElementById('victory-message');
     const victoryAvatar = document.getElementById('victory-avatar');
+    const winnerPathBox = document.getElementById('winner-path-container');
+    const winnerPathList = document.getElementById('winner-path-list');
 
     victoryScreen.classList.remove('hidden');
     
@@ -192,41 +222,35 @@ socket.on('round_end', ({ winnerName, room }) => {
         victoryContent.classList.remove('draw'); victoryContent.classList.add('win');
         victoryTitle.innerText = "VICTOIRE !"; victoryTitle.style.color = "#f1c40f";
         victoryAvatar.innerText = "🏆"; victoryMsg.innerText = `Bravo à ${winnerName} !`;
+        winnerPathBox.classList.remove('hidden');
+        winnerPathList.innerHTML = winnerHistory.map(p => `<span>${p}</span>`).join(' ➜ ');
     } else {
         victoryContent.classList.remove('win'); victoryContent.classList.add('draw');
         victoryTitle.innerText = "AUCUN GAGNANT"; victoryTitle.style.color = "#bdc3c7";
-        victoryAvatar.innerText = "🏳️"; victoryMsg.innerText = "Abandon général ou temps écoulé.";
+        victoryAvatar.innerText = "🏳️"; victoryMsg.innerText = "Abandon général.";
+        winnerPathBox.classList.add('hidden');
     }
 });
 
-// NOUVEAU : GESTION FIN DE PARTIE COMPLETE
 socket.on('game_over', ({ leaderboard, room }) => {
     stopClientTimer();
     currentRoom = room;
     updateLobbyUI();
     resetGameView(room);
-    
     const finalScreen = document.getElementById('final-screen');
     const podiumDiv = document.getElementById('podium-container');
-    podiumDiv.innerHTML = ''; // Clear
-
+    podiumDiv.innerHTML = '';
     leaderboard.forEach((p, index) => {
         const place = index + 1;
         let medal = '';
         if (place === 1) medal = '🥇';
         if (place === 2) medal = '🥈';
         if (place === 3) medal = '🥉';
-
         const row = document.createElement('div');
         row.className = 'leaderboard-row';
-        row.innerHTML = `
-            <div class="rank">${place}</div>
-            <div class="name">${medal} ${p.username}</div>
-            <div class="score">${p.score} pts</div>
-        `;
+        row.innerHTML = `<div class="rank">${place}</div><div class="name">${medal} ${p.username}</div><div class="score">${p.score} pts</div>`;
         podiumDiv.appendChild(row);
     });
-
     finalScreen.classList.remove('hidden');
 });
 
@@ -235,6 +259,7 @@ function resetGameView(room) {
     document.getElementById('wiki-frame').style.display = 'none';
     document.getElementById('timer-display').classList.add('hidden');
     document.getElementById('btn-forfeit').classList.add('hidden');
+    document.getElementById('my-history-box').classList.add('hidden');
     document.querySelector('.placeholder-text').style.display = 'block';
     document.querySelector('.placeholder-text h2').innerText = "En attente...";
     syncSettingsUI(room.settings);
@@ -250,19 +275,12 @@ function updateLobbyUI() {
         div.className = `player-card ${isMe ? 'my-card' : ''}`;
         if(p.finished) div.classList.add('finished');
         const scoreBadge = p.score > 0 ? `<span class="score-badge">🏆 ${p.score}</span>` : '';
-        div.innerHTML = `
-            <div class="p-header"><strong>${p.username}</strong> ${scoreBadge}</div>
-            <div class="p-stats">
-                <small>🖱️ <span id="p-clicks-${p.id}">${p.clicks}</span></small>
-                <small>📄 <span id="p-page-${p.id}" class="page-name">${p.currentPage || '-'}</span></small>
-            </div>
-        `;
+        div.innerHTML = `<div class="p-header"><strong>${p.username}</strong> ${scoreBadge}</div><div class="p-stats"><small>🖱️ <span id="p-clicks-${p.id}">${p.clicks}</span></small><small>📄 <span id="p-page-${p.id}" class="page-name">${p.currentPage || '-'}</span></small></div>`;
         list.appendChild(div);
     });
     const isHost = currentRoom.host === currentUser.id;
     const isLobby = currentRoom.state === 'LOBBY';
     const btnStart = document.getElementById('btn-start');
-    
     if (isHost && isLobby) {
         btnStart.classList.remove('hidden');
         document.getElementById('host-settings').classList.remove('hidden');
@@ -272,9 +290,7 @@ function updateLobbyUI() {
         btnStart.classList.add('hidden');
         document.getElementById('host-settings').classList.add('hidden');
         document.getElementById('guest-settings').classList.remove('hidden');
-    } else {
-        btnStart.classList.add('hidden');
-    }
+    } else { btnStart.classList.add('hidden'); }
 }
 
 function syncSettingsUI(settings) {
@@ -293,14 +309,9 @@ function startClientTimer(startTime, limit) {
         const elapsedSec = Math.floor((now - startTime) / 1000);
         if (limit > 0) {
             const remaining = limit - elapsedSec;
-            if (remaining <= 0) {
-                display.innerText = "00:00"; display.style.color = "red";
-            } else {
-                display.innerText = formatTime(remaining); display.style.color = remaining < 10 ? "red" : "white";
-            }
-        } else {
-            display.innerText = formatTime(elapsedSec); display.style.color = "white";
-        }
+            if (remaining <= 0) { display.innerText = "00:00"; display.style.color = "red"; }
+            else { display.innerText = formatTime(remaining); display.style.color = remaining < 10 ? "red" : "white"; }
+        } else { display.innerText = formatTime(elapsedSec); display.style.color = "white"; }
     }, 1000);
 }
 function stopClientTimer() { if (timerInterval) clearInterval(timerInterval); }
